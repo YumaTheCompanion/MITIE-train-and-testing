@@ -7,6 +7,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace dlib;
 using namespace std;
@@ -16,65 +17,83 @@ using namespace mitie;
 
 int main(int argc, char** argv)
 {
-    if (argc != 2)
+    /*
+        Usage: ./train_ner_example /home/okanb/MITIE/examples/cpp/train_ner/modifications.txt /home/okanb/MITIE/examples/cpp/train_ner/NER-datasets/CONLL2003/train.txt ../../../MITIE-models/english/total_word_feature_extractor.dat; 
+    */
+    
+    if (argc != 4)
     {
+        cout << "You must give the path to the modifications.txt file." << endl;
+        cout << "You must give the path to the train.txt file." << endl;
         cout << "You must give the path to the MITIE English total_word_feature_extractor.dat file." << endl;
         cout << "So run this program with a command like: " << endl;
-        cout << "./train_ner_example ../../../MITIE-models/english/total_word_feature_extractor.dat" << endl;
+        cout << "./train_ner_example ./NER-datasets/CONLL2003/train.txt ../../../MITIE-models/english/total_word_feature_extractor.dat" << endl;
         return 1;
     }
-    ner_trainer trainer(argv[1]);
-    // Don't forget to add the training data.  Here we have only two examples, but for real
-    // uses you need to have thousands.  
-   
+    
+    // Here, we load the input text files and the dat files.
+    std::ifstream infile_modifications(argv[1]);
+    std::ifstream infile(argv[2]); 
+    ner_trainer trainer(argv[3]);
+    
+    // First of all, we want to read the modifications.txt file, because, the ingredients of that file
+    // is basically a modification to the "tag" structure of the main input text file.
+    // We will put the found tags into a map
+    std::map<string, string> mod_map;
+    std::string word_to_be_modified, modified_NER_tag;   
+    while (infile_modifications >> word_to_be_modified >> modified_NER_tag)
+    {
+        mod_map.insert(std::pair<std::string, std::string>(word_to_be_modified, modified_NER_tag));
+        std::cout << "Got modification: " << word_to_be_modified << " with tag " << modified_NER_tag << std::endl;
+    }
+    
     bool new_sentence_is_created = false;
     std::string sentence_ending(".");
     std::string sentence_no_tag_incliusion("O");
     std::vector<std::string> *sentence = nullptr;
     std::vector<std::pair<int, std::string>> *entities = nullptr;
-    ner_training_instance *sample = nullptr;
-    std::ifstream infile("/home/okanb/MITIE/examples/cpp/train_ner/NER-datasets/CONLL2003/train.txt");
-    std::string word, part_of_speech_tag, chunk_tag, NER_tag;
-    
+    ner_training_instance *sample = nullptr;       
+    std::string word, part_of_speech_tag, chunk_tag, NER_tag;    
     sentence = new std::vector<std::string>();  
     entities = new std::vector<std::pair<int, std::string>>();
     //sample = new ner_training_instance(*sentence);
     new_sentence_is_created = true;
+    size_t current_line = 0;
 
     while (infile >> word >> part_of_speech_tag >> chunk_tag >> NER_tag)
-    {
-        std::cout << word << ", " << NER_tag << std::endl;        
-        if(word.compare(sentence_ending) == 0) {
-            //std::cout << "asdasd" << std::endl;
+    {              
+        std::cout << "Reading word: " << word << "\n";
+        if(word.compare(sentence_ending) == 0) {         
             if(new_sentence_is_created == true) {
                 sentence->push_back(word);
                 sample = new ner_training_instance(*sentence);                
                 for(int i = 0; i < entities->size(); i++) {                    
                     sample->add_entity(entities->at(i).first, 1, entities->at(i).second.c_str());
                 }
-                trainer.add(*sample);
+                trainer.add(*sample);                
             }
             sentence = new std::vector<std::string>();  
             entities = new std::vector<std::pair<int, std::string>>();
             //sample = new ner_training_instance(*sentence);
             new_sentence_is_created = true;
         } else {            
-            if(NER_tag.compare(sentence_no_tag_incliusion) != 0) {                
+            if(NER_tag.compare(sentence_no_tag_incliusion) != 0) {                      
+                sentence->push_back(word);                
+                entities->emplace_back(sentence->size()-1, NER_tag);                
+            } else {               
                 sentence->push_back(word);
-                entities->emplace_back(sentence->size()-1, NER_tag);
-                
-                //std::cout << "asdasd" << sentence->size() << std::endl;
-                //sample->add_entity(sentence->size()-1, 1, NER_tag.c_str());
-            } else {
-                sentence->push_back(word);
+                if(mod_map.find(word.c_str()) != mod_map.end()) {                    
+                    entities->emplace_back(sentence->size()-1, mod_map[word.c_str()]);
+                    std::cout << "Modified " << word << "'s tag with '" << mod_map[word.c_str()] << "' at line: " << current_line << std::endl;  
+                }
             }
         }
-        
+        current_line++;
     }
 
     // The trainer can take advantage of a multi-core CPU.  So set the number of threads
     // equal to the number of processing cores for maximum training speed.
-    trainer.set_num_threads(4);
+    trainer.set_num_threads(8);
     // This function does the work of training.  Note that it can take a long time to run
     // when using larger training datasets.  So be patient.
     named_entity_extractor ner = trainer.train();
@@ -84,6 +103,7 @@ int main(int argc, char** argv)
     serialize("new_ner_model.dat") << "mitie::named_entity_extractor" << ner;
 
 
+    /*
     // But now let's try out the ner object.  It was only trained on a small dataset but it
     // has still learned a little.  So let's give it a whirl.  But first, print a list of
     // possible tags.  In this case, it is just "person" and "org".
@@ -118,6 +138,7 @@ int main(int argc, char** argv)
             cout << sentenceF[j] << " ";
         cout << endl;
     }
+     * */
 }
 
 // ----------------------------------------------------------------------------------------
